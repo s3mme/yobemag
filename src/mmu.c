@@ -90,6 +90,17 @@ void mmu_stack_push(uint16_t push_value) {
     LOG_DEBUG("Push %04x to %02x", push_value, cpu.SP);
 }
 
+uint16_t mmu_stack_pop(void) {
+    uint8_t lower = mmu_get_byte(cpu.SP);
+    cpu.SP++;
+    uint8_t upper = mmu_get_byte(cpu.SP);
+    cpu.SP++;
+    uint16_t value = (uint16_t) (lower | (upper << 8));
+
+    LOG_DEBUG("Pop %04x from %02x", value, (uint16_t) (cpu.SP - 2));
+    return value;
+}
+
 void dump_hex(const uint8_t *data, size_t size) {
     unsigned char ascii[17];
     size_t i, j;
