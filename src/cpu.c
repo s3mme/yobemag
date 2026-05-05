@@ -36,7 +36,7 @@ _Noreturn static void UNKNOWN_OPCODE(void) {
 
 // internal prototypes
 void OPC_RST_x(uint16_t address);
-void OPC_LD_xx_u16(uint16_t load_addr);
+void OPC_LD_xx_u16(uint16_t *dest_reg);
 static void cb_optable_init(void);
 
 static op_function instr_lookup[0xFF + 1]       = {[0 ... 0xFF] = &UNKNOWN_OPCODE};
@@ -418,6 +418,13 @@ void cpu_step(void) {
     }
     // We cannot know (here) the exact number of increments that the PC and cycle count need,
     // hence the instructions themselves do it
+
+    //    blarggs test - serial output
+    if (mmu_get_byte(0xff02) == 0x81) {
+        uint8_t c = mmu_get_byte(0xff01);
+        printf("%c", c);
+        mmu_write_byte(0xff02, 0x0);
+    }
 
     LOG_DEBUG("-----------------");
 }
@@ -1919,7 +1926,7 @@ void OPC_DEC_HL(void) {
 
 void OPC_RST_x(uint16_t address) {
     mmu_stack_push(cpu.PC);
-    cpu.PC = mmu_get_two_bytes(address);
+    cpu.PC = address;
     cpu.cycle_count += 16;
 }
 
@@ -1955,31 +1962,30 @@ void OPC_RST_38(void) {
     LOG_DEBUG("OPC_RST_38");
     OPC_RST_x(0x0038);
 }
-void OPC_LD_xx_u16(uint16_t load_addr) {
-    mmu_write_two_bytes(load_addr, mmu_get_two_bytes(cpu.PC));
+void OPC_LD_xx_u16(uint16_t *dest_reg) {
+    *dest_reg = mmu_get_two_bytes(cpu.PC);
     cpu.PC += 2;
-
     cpu.cycle_count += 12;
 }
 
 void OPC_LD_BC_u16(void) {
     LOG_DEBUG("OPC_LD_BC_u16");
-    OPC_LD_xx_u16(CPU_DREG_BC);
+    OPC_LD_xx_u16(&CPU_DREG_BC);
 }
 
 void OPC_LD_DE_u16(void) {
     LOG_DEBUG("OPC_LD_DE_u16");
-    OPC_LD_xx_u16(CPU_DREG_DE);
+    OPC_LD_xx_u16(&CPU_DREG_DE);
 }
 
 void OPC_LD_HL_u16(void) {
     LOG_DEBUG("OPC_LD_HL_u16");
-    OPC_LD_xx_u16(CPU_DREG_HL);
+    OPC_LD_xx_u16(&CPU_DREG_HL);
 }
 
 void OPC_LD_SP_u16(void) {
     LOG_DEBUG("OPC_LD_SP_u16");
-    OPC_LD_xx_u16(cpu.SP);
+    OPC_LD_xx_u16(&cpu.SP);
 }
 
 void OPC_JR_i8(void) {
@@ -2002,12 +2008,15 @@ void CALL(uint16_t address) {
 void OPC_CALL_u16(void) {
     LOG_DEBUG("OPC_CALL_u16");
     uint16_t nn = mmu_get_two_bytes(cpu.PC);
+    cpu.PC += 2; // return address is the instruction after this CALL
     CALL(nn);
+    cpu.cycle_count += 24;
 }
 void OPC_CALL_cc_u16(uint8_t bit, uint8_t branching_condition);
 void OPC_CALL_cc_u16(uint8_t bit, uint8_t branching_condition) {
     LOG_DEBUG("OPC_CALL_cc_u16");
     uint16_t nn = mmu_get_two_bytes(cpu.PC);
+    cpu.PC += 2; // return address is the instruction after this CALL
 
     if (bit == branching_condition) {
         CALL(nn);
@@ -2066,7 +2075,7 @@ void OPC_EI(void) {
 void OPC_DAA(void) {
     LOG_DEBUG("OPC_DAA");
     uint16_t a      = CPU_REG_A;
-    uint8_t  carry  = 0;
+    uint8_t carry   = 0;
     uint16_t adjust = 0;
 
     if (get_flag(N_FLAG)) {
@@ -2126,7 +2135,6 @@ void OPC_CCF(void) {
     cpu.cycle_count += 4;
 }
 
-
 // ----------------------- Rotates on A
 void OPC_RLCA(void) {
     LOG_DEBUG("OPC_RLCA");
@@ -2183,9 +2191,9 @@ void OPC_LD_SP_HL(void) {
 
 void OPC_LD_HL_SP_i8(void) {
     LOG_DEBUG("OPC_LD_HL_SP_i8");
-    int8_t   n  = (int8_t) mmu_get_byte(cpu.PC);
+    int8_t n    = (int8_t) mmu_get_byte(cpu.PC);
     uint16_t sp = cpu.SP;
-    uint8_t  un = (uint8_t) n;
+    uint8_t un  = (uint8_t) n;
 
     clear_flag_register();
     set_flag(((sp & LO_NIBBLE_MASK) + (un & LO_NIBBLE_MASK)) > LO_NIBBLE_MASK, H_FLAG);
@@ -2277,9 +2285,9 @@ void OPC_ADD_HL_SP(void) {
 
 void OPC_ADD_SP_i8(void) {
     LOG_DEBUG("OPC_ADD_SP_i8");
-    int8_t   n  = (int8_t) mmu_get_byte(cpu.PC);
+    int8_t n    = (int8_t) mmu_get_byte(cpu.PC);
     uint16_t sp = cpu.SP;
-    uint8_t  un = (uint8_t) n;
+    uint8_t un  = (uint8_t) n;
 
     clear_flag_register();
     set_flag(((sp & LO_NIBBLE_MASK) + (un & LO_NIBBLE_MASK)) > LO_NIBBLE_MASK, H_FLAG);
@@ -2480,30 +2488,30 @@ static void SET_n(uint8_t *reg, uint8_t bit) {
 }
 
 // Wrappers: one void(void) function per CB opcode
-#define CB_REG_OP(OP, REG)                          \
-    static void OPC_CB_##OP##_##REG(void) {         \
-        LOG_DEBUG("OPC_CB_" #OP "_" #REG);          \
-        OP##_n(&CPU_REG_##REG);                     \
-        cpu.cycle_count += 8;                       \
+#define CB_REG_OP(OP, REG)                                                                                              \
+    static void OPC_CB_##OP##_##REG(void) {                                                                             \
+        LOG_DEBUG("OPC_CB_" #OP "_" #REG);                                                                              \
+        OP##_n(&CPU_REG_##REG);                                                                                         \
+        cpu.cycle_count += 8;                                                                                           \
     }
 
-#define CB_HL_OP(OP)                                \
-    static void OPC_CB_##OP##_HL(void) {            \
-        LOG_DEBUG("OPC_CB_" #OP "_HL");             \
-        uint8_t value = mmu_get_byte(CPU_DREG_HL);  \
-        OP##_n(&value);                             \
-        mmu_write_byte(CPU_DREG_HL, value);         \
-        cpu.cycle_count += 16;                      \
+#define CB_HL_OP(OP)                                                                                                    \
+    static void OPC_CB_##OP##_HL(void) {                                                                                \
+        LOG_DEBUG("OPC_CB_" #OP "_HL");                                                                                 \
+        uint8_t value = mmu_get_byte(CPU_DREG_HL);                                                                      \
+        OP##_n(&value);                                                                                                 \
+        mmu_write_byte(CPU_DREG_HL, value);                                                                             \
+        cpu.cycle_count += 16;                                                                                          \
     }
 
-#define CB_OP_ALL(OP)                               \
-    CB_REG_OP(OP, B)                                \
-    CB_REG_OP(OP, C)                                \
-    CB_REG_OP(OP, D)                                \
-    CB_REG_OP(OP, E)                                \
-    CB_REG_OP(OP, H)                                \
-    CB_REG_OP(OP, L)                                \
-    CB_HL_OP(OP)                                    \
+#define CB_OP_ALL(OP)                                                                                                   \
+    CB_REG_OP(OP, B)                                                                                                    \
+    CB_REG_OP(OP, C)                                                                                                    \
+    CB_REG_OP(OP, D)                                                                                                    \
+    CB_REG_OP(OP, E)                                                                                                    \
+    CB_REG_OP(OP, H)                                                                                                    \
+    CB_REG_OP(OP, L)                                                                                                    \
+    CB_HL_OP(OP)                                                                                                        \
     CB_REG_OP(OP, A)
 
 CB_OP_ALL(RLC)
@@ -2515,28 +2523,28 @@ CB_OP_ALL(SRA)
 CB_OP_ALL(SWAP)
 CB_OP_ALL(SRL)
 
-#define CB_BIT_REG(BIT, REG)                                \
-    static void OPC_CB_BIT_##BIT##_##REG(void) {            \
-        LOG_DEBUG("OPC_CB_BIT_" #BIT "_" #REG);             \
-        BIT_n(CPU_REG_##REG, BIT);                          \
-        cpu.cycle_count += 8;                               \
+#define CB_BIT_REG(BIT, REG)                                                                                            \
+    static void OPC_CB_BIT_##BIT##_##REG(void) {                                                                        \
+        LOG_DEBUG("OPC_CB_BIT_" #BIT "_" #REG);                                                                         \
+        BIT_n(CPU_REG_##REG, BIT);                                                                                      \
+        cpu.cycle_count += 8;                                                                                           \
     }
 
-#define CB_BIT_HL(BIT)                                      \
-    static void OPC_CB_BIT_##BIT##_HL(void) {               \
-        LOG_DEBUG("OPC_CB_BIT_" #BIT "_HL");                \
-        BIT_n(mmu_get_byte(CPU_DREG_HL), BIT);              \
-        cpu.cycle_count += 12;                              \
+#define CB_BIT_HL(BIT)                                                                                                  \
+    static void OPC_CB_BIT_##BIT##_HL(void) {                                                                           \
+        LOG_DEBUG("OPC_CB_BIT_" #BIT "_HL");                                                                            \
+        BIT_n(mmu_get_byte(CPU_DREG_HL), BIT);                                                                          \
+        cpu.cycle_count += 12;                                                                                          \
     }
 
-#define CB_BIT_ALL(BIT)                                     \
-    CB_BIT_REG(BIT, B)                                      \
-    CB_BIT_REG(BIT, C)                                      \
-    CB_BIT_REG(BIT, D)                                      \
-    CB_BIT_REG(BIT, E)                                      \
-    CB_BIT_REG(BIT, H)                                      \
-    CB_BIT_REG(BIT, L)                                      \
-    CB_BIT_HL(BIT)                                          \
+#define CB_BIT_ALL(BIT)                                                                                                 \
+    CB_BIT_REG(BIT, B)                                                                                                  \
+    CB_BIT_REG(BIT, C)                                                                                                  \
+    CB_BIT_REG(BIT, D)                                                                                                  \
+    CB_BIT_REG(BIT, E)                                                                                                  \
+    CB_BIT_REG(BIT, H)                                                                                                  \
+    CB_BIT_REG(BIT, L)                                                                                                  \
+    CB_BIT_HL(BIT)                                                                                                      \
     CB_BIT_REG(BIT, A)
 
 CB_BIT_ALL(0)
@@ -2548,30 +2556,30 @@ CB_BIT_ALL(5)
 CB_BIT_ALL(6)
 CB_BIT_ALL(7)
 
-#define CB_RW_REG(OP, BIT, REG)                             \
-    static void OPC_CB_##OP##_##BIT##_##REG(void) {         \
-        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_" #REG);         \
-        OP##_n(&CPU_REG_##REG, BIT);                        \
-        cpu.cycle_count += 8;                               \
+#define CB_RW_REG(OP, BIT, REG)                                                                                         \
+    static void OPC_CB_##OP##_##BIT##_##REG(void) {                                                                     \
+        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_" #REG);                                                                     \
+        OP##_n(&CPU_REG_##REG, BIT);                                                                                    \
+        cpu.cycle_count += 8;                                                                                           \
     }
 
-#define CB_RW_HL(OP, BIT)                                   \
-    static void OPC_CB_##OP##_##BIT##_HL(void) {            \
-        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_HL");            \
-        uint8_t value = mmu_get_byte(CPU_DREG_HL);          \
-        OP##_n(&value, BIT);                                \
-        mmu_write_byte(CPU_DREG_HL, value);                 \
-        cpu.cycle_count += 16;                              \
+#define CB_RW_HL(OP, BIT)                                                                                               \
+    static void OPC_CB_##OP##_##BIT##_HL(void) {                                                                        \
+        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_HL");                                                                        \
+        uint8_t value = mmu_get_byte(CPU_DREG_HL);                                                                      \
+        OP##_n(&value, BIT);                                                                                            \
+        mmu_write_byte(CPU_DREG_HL, value);                                                                             \
+        cpu.cycle_count += 16;                                                                                          \
     }
 
-#define CB_RW_ALL(OP, BIT)                                  \
-    CB_RW_REG(OP, BIT, B)                                   \
-    CB_RW_REG(OP, BIT, C)                                   \
-    CB_RW_REG(OP, BIT, D)                                   \
-    CB_RW_REG(OP, BIT, E)                                   \
-    CB_RW_REG(OP, BIT, H)                                   \
-    CB_RW_REG(OP, BIT, L)                                   \
-    CB_RW_HL(OP, BIT)                                       \
+#define CB_RW_ALL(OP, BIT)                                                                                              \
+    CB_RW_REG(OP, BIT, B)                                                                                               \
+    CB_RW_REG(OP, BIT, C)                                                                                               \
+    CB_RW_REG(OP, BIT, D)                                                                                               \
+    CB_RW_REG(OP, BIT, E)                                                                                               \
+    CB_RW_REG(OP, BIT, H)                                                                                               \
+    CB_RW_REG(OP, BIT, L)                                                                                               \
+    CB_RW_HL(OP, BIT)                                                                                                   \
     CB_RW_REG(OP, BIT, A)
 
 CB_RW_ALL(RES, 0)
@@ -2592,28 +2600,28 @@ CB_RW_ALL(SET, 5)
 CB_RW_ALL(SET, 6)
 CB_RW_ALL(SET, 7)
 
-#define CB_REGISTER_OP(BASE, OP)                            \
-    do {                                                    \
-        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_B;   \
-        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_C;   \
-        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_D;   \
-        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_E;   \
-        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_H;   \
-        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_L;   \
-        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_HL;  \
-        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_A;   \
+#define CB_REGISTER_OP(BASE, OP)                                                                                        \
+    do {                                                                                                                \
+        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_B;                                                               \
+        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_C;                                                               \
+        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_D;                                                               \
+        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_E;                                                               \
+        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_H;                                                               \
+        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_L;                                                               \
+        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_HL;                                                              \
+        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_A;                                                               \
     } while (0)
 
-#define CB_REGISTER_BITTED(BASE, OP, BIT)                          \
-    do {                                                           \
-        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_##BIT##_B;  \
-        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_##BIT##_C;  \
-        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_##BIT##_D;  \
-        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_##BIT##_E;  \
-        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_##BIT##_H;  \
-        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_##BIT##_L;  \
-        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_##BIT##_HL; \
-        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_##BIT##_A;  \
+#define CB_REGISTER_BITTED(BASE, OP, BIT)                                                                               \
+    do {                                                                                                                \
+        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_##BIT##_B;                                                       \
+        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_##BIT##_C;                                                       \
+        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_##BIT##_D;                                                       \
+        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_##BIT##_E;                                                       \
+        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_##BIT##_H;                                                       \
+        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_##BIT##_L;                                                       \
+        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_##BIT##_HL;                                                      \
+        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_##BIT##_A;                                                       \
     } while (0)
 
 static void cb_optable_init(void) {
