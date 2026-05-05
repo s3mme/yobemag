@@ -775,4 +775,79 @@ void OPC_CALL_C_u16(void);
 void OPC_CALL_NC_u16(void);
 
 void OPC_DI(void);
+
+/******************************************************
+ *** Misc / control                                 ***
+ ******************************************************/
+void OPC_STOP(void);
+void OPC_HALT(void);
+void OPC_EI(void);
+void OPC_DAA(void);
+void OPC_CPL(void);
+void OPC_SCF(void);
+void OPC_CCF(void);
+
+/******************************************************
+ *** Rotates on A                                   ***
+ ******************************************************/
+void OPC_RLCA(void);
+void OPC_RRCA(void);
+void OPC_RLA(void);
+void OPC_RRA(void);
+
+/******************************************************
+ *** 16-BIT Loads                                   ***
+ ******************************************************/
+void OPC_LD_a16_SP(void);
+void OPC_LD_SP_HL(void);
+void OPC_LD_HL_SP_i8(void);
+
+/******************************************************
+ *** 16-BIT ALU                                     ***
+ ******************************************************/
+void OPC_INC_DE(void);
+void OPC_INC_HL16(void);
+void OPC_INC_SP(void);
+
+void OPC_DEC_BC(void);
+void OPC_DEC_DE(void);
+void OPC_DEC_HL16(void);
+void OPC_DEC_SP(void);
+
+void OPC_ADD_HL_BC(void);
+void OPC_ADD_HL_DE(void);
+void OPC_ADD_HL_HL(void);
+void OPC_ADD_HL_SP(void);
+
+void OPC_ADD_SP_i8(void);
+
+/******************************************************
+ *** Jumps                                          ***
+ ******************************************************/
+void OPC_JP_a16(void);
+void OPC_JP_HL(void);
+
+/******************************************************
+ *** Stack                                          ***
+ ******************************************************/
+void OPC_PUSH_BC(void);
+void OPC_PUSH_DE(void);
+void OPC_PUSH_HL(void);
+void OPC_PUSH_AF(void);
+
+void OPC_POP_BC(void);
+void OPC_POP_DE(void);
+void OPC_POP_HL(void);
+void OPC_POP_AF(void);
+
+/******************************************************
+ *** Returns                                        ***
+ ******************************************************/
+void OPC_RET(void);
+void OPC_RETI(void);
+void OPC_RET_NZ(void);
+void OPC_RET_Z(void);
+void OPC_RET_NC(void);
+void OPC_RET_C(void);
+
 #endif // YOBEMAG_CPU_H

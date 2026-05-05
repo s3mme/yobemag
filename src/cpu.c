@@ -37,6 +37,7 @@ _Noreturn static void UNKNOWN_OPCODE(void) {
 // internal prototypes
 void OPC_RST_x(uint16_t address);
 void OPC_LD_xx_u16(uint16_t load_addr);
+static void cb_optable_init(void);
 
 static op_function instr_lookup[0xFF + 1]       = {[0 ... 0xFF] = &UNKNOWN_OPCODE};
 static op_function cb_prefixed_lookup[0xFF + 1] = {[0 ... 0xFF] = &UNKNOWN_OPCODE};
@@ -309,12 +310,80 @@ static void optable_init(void) {
     instr_lookup[0xd4] = OPC_CALL_NC_u16;
     instr_lookup[0xdc] = OPC_CALL_C_u16;
 
-    // TODO: 0xC3
+    // Misc / control
+    instr_lookup[0x10] = OPC_STOP;
+    instr_lookup[0x76] = OPC_HALT;
+    instr_lookup[0xFB] = OPC_EI;
+    instr_lookup[0x27] = OPC_DAA;
+    instr_lookup[0x2F] = OPC_CPL;
+    instr_lookup[0x37] = OPC_SCF;
+    instr_lookup[0x3F] = OPC_CCF;
 
-    cb_prefixed_lookup[0x0] = UNKNOWN_OPCODE;
+    // Rotates on A
+    instr_lookup[0x07] = OPC_RLCA;
+    instr_lookup[0x0F] = OPC_RRCA;
+    instr_lookup[0x17] = OPC_RLA;
+    instr_lookup[0x1F] = OPC_RRA;
+
+    // 16-bit loads
+    instr_lookup[0x08] = OPC_LD_a16_SP;
+    instr_lookup[0xF8] = OPC_LD_HL_SP_i8;
+    instr_lookup[0xF9] = OPC_LD_SP_HL;
+
+    // 16-bit ALU: INC rr
+    instr_lookup[0x13] = OPC_INC_DE;
+    instr_lookup[0x23] = OPC_INC_HL16;
+    instr_lookup[0x33] = OPC_INC_SP;
+
+    // 16-bit ALU: DEC rr
+    instr_lookup[0x0B] = OPC_DEC_BC;
+    instr_lookup[0x1B] = OPC_DEC_DE;
+    instr_lookup[0x2B] = OPC_DEC_HL16;
+    instr_lookup[0x3B] = OPC_DEC_SP;
+
+    // 16-bit ALU: ADD HL, rr
+    instr_lookup[0x09] = OPC_ADD_HL_BC;
+    instr_lookup[0x19] = OPC_ADD_HL_DE;
+    instr_lookup[0x29] = OPC_ADD_HL_HL;
+    instr_lookup[0x39] = OPC_ADD_HL_SP;
+
+    // 16-bit ALU: ADD SP, i8
+    instr_lookup[0xE8] = OPC_ADD_SP_i8;
+
+    // Jumps
+    instr_lookup[0xC3] = OPC_JP_a16;
+    instr_lookup[0xE9] = OPC_JP_HL;
+
+    // Stack: PUSH rr
+    instr_lookup[0xC5] = OPC_PUSH_BC;
+    instr_lookup[0xD5] = OPC_PUSH_DE;
+    instr_lookup[0xE5] = OPC_PUSH_HL;
+    instr_lookup[0xF5] = OPC_PUSH_AF;
+
+    // Stack: POP rr
+    instr_lookup[0xC1] = OPC_POP_BC;
+    instr_lookup[0xD1] = OPC_POP_DE;
+    instr_lookup[0xE1] = OPC_POP_HL;
+    instr_lookup[0xF1] = OPC_POP_AF;
+
+    // Returns
+    instr_lookup[0xC9] = OPC_RET;
+    instr_lookup[0xD9] = OPC_RETI;
+    instr_lookup[0xC0] = OPC_RET_NZ;
+    instr_lookup[0xC8] = OPC_RET_Z;
+    instr_lookup[0xD0] = OPC_RET_NC;
+    instr_lookup[0xD8] = OPC_RET_C;
+
+    // Restarts
+    instr_lookup[0xC7] = OPC_RST_00;
+    instr_lookup[0xD7] = OPC_RST_10;
+    instr_lookup[0xE7] = OPC_RST_20;
+    instr_lookup[0xF7] = OPC_RST_30;
+
+    cb_optable_init();
 }
 
-/* ------------------ CPU Funcs */
+// ------------------ CPU Funcs
 void cpu_init(void) {
     optable_init();
 
@@ -340,8 +409,13 @@ void cpu_step(void) {
 
     cpu.opcode = mmu_get_byte(cpu.PC++);
 
-    // Get and Execute c.opcode
-    (*(instr_lookup[cpu.opcode]))();
+    // CB prefix: get second byte and run
+    if (cpu.opcode == 0xCB) {
+        cpu.opcode = mmu_get_byte(cpu.PC++);
+        (*(cb_prefixed_lookup[cpu.opcode]))();
+    } else {
+        (*(instr_lookup[cpu.opcode]))();
+    }
     // We cannot know (here) the exact number of increments that the PC and cycle count need,
     // hence the instructions themselves do it
 
@@ -1965,5 +2039,617 @@ void OPC_CALL_NC_u16(void) {
 
 void OPC_DI(void) {
     LOG_DEBUG("OPC_DI(void)");
-    // TODO: implement interrupt
+    // TODO: implement interrupts
+}
+
+// ----------------------- Misc / control
+void OPC_STOP(void) {
+    LOG_DEBUG("OPC_STOP");
+    // STOP is encoded as the two-byte sequence 0x10 0x00; consume the second byte.
+    ++cpu.PC;
+    cpu.cycle_count += 4;
+    // TODO: add STOP semantics (CPU + LCD halt until button input)
+}
+
+void OPC_HALT(void) {
+    LOG_DEBUG("OPC_HALT");
+    cpu.cycle_count += 4;
+    // TODO: halt CPU until next interrupt
+}
+
+void OPC_EI(void) {
+    LOG_DEBUG("OPC_EI");
+    cpu.cycle_count += 4;
+    // TODO: enable interrupts
+}
+
+void OPC_DAA(void) {
+    LOG_DEBUG("OPC_DAA");
+    uint16_t a      = CPU_REG_A;
+    uint8_t  carry  = 0;
+    uint16_t adjust = 0;
+
+    if (get_flag(N_FLAG)) {
+        if (get_flag(H_FLAG)) {
+            adjust |= 0x06;
+        }
+        if (get_flag(C_FLAG)) {
+            adjust |= 0x60;
+            carry = 1;
+        }
+        a = (uint16_t) (a - adjust);
+    } else {
+        if (get_flag(H_FLAG) || (a & LO_NIBBLE_MASK) > 0x09) {
+            adjust |= 0x06;
+        }
+        if (get_flag(C_FLAG) || a > 0x99) {
+            adjust |= 0x60;
+            carry = 1;
+        }
+        a = (uint16_t) (a + adjust);
+    }
+
+    CPU_REG_A = (uint8_t) (a & BYTE_MASK);
+
+    clear_flag(Z_FLAG);
+    set_flag(CPU_REG_A == 0, Z_FLAG);
+    clear_flag(H_FLAG);
+    clear_flag(C_FLAG);
+    set_flag(carry, C_FLAG);
+
+    cpu.cycle_count += 4;
+}
+
+void OPC_CPL(void) {
+    LOG_DEBUG("OPC_CPL");
+    CPU_REG_A = (uint8_t) (~CPU_REG_A);
+    set_flag(1, N_FLAG);
+    set_flag(1, H_FLAG);
+    cpu.cycle_count += 4;
+}
+
+void OPC_SCF(void) {
+    LOG_DEBUG("OPC_SCF");
+    clear_flag(N_FLAG);
+    clear_flag(H_FLAG);
+    set_flag(1, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+void OPC_CCF(void) {
+    LOG_DEBUG("OPC_CCF");
+    uint8_t old_c = get_flag(C_FLAG);
+    clear_flag(N_FLAG);
+    clear_flag(H_FLAG);
+    clear_flag(C_FLAG);
+    set_flag(!old_c, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+
+// ----------------------- Rotates on A
+void OPC_RLCA(void) {
+    LOG_DEBUG("OPC_RLCA");
+    uint8_t bit7 = (uint8_t) ((CPU_REG_A >> 7) & 1);
+    CPU_REG_A    = (uint8_t) ((CPU_REG_A << 1) | bit7);
+    clear_flag_register();
+    set_flag(bit7, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+void OPC_RRCA(void) {
+    LOG_DEBUG("OPC_RRCA");
+    uint8_t bit0 = (uint8_t) (CPU_REG_A & 1);
+    CPU_REG_A    = (uint8_t) ((CPU_REG_A >> 1) | (bit0 << 7));
+    clear_flag_register();
+    set_flag(bit0, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+void OPC_RLA(void) {
+    LOG_DEBUG("OPC_RLA");
+    uint8_t old_carry = get_flag(C_FLAG);
+    uint8_t bit7      = (uint8_t) ((CPU_REG_A >> 7) & 1);
+    CPU_REG_A         = (uint8_t) ((CPU_REG_A << 1) | old_carry);
+    clear_flag_register();
+    set_flag(bit7, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+void OPC_RRA(void) {
+    LOG_DEBUG("OPC_RRA");
+    uint8_t old_carry = get_flag(C_FLAG);
+    uint8_t bit0      = (uint8_t) (CPU_REG_A & 1);
+    CPU_REG_A         = (uint8_t) ((CPU_REG_A >> 1) | (old_carry << 7));
+    clear_flag_register();
+    set_flag(bit0, C_FLAG);
+    cpu.cycle_count += 4;
+}
+
+// ----------------------- 16-BIT Loads
+void OPC_LD_a16_SP(void) {
+    LOG_DEBUG("OPC_LD_a16_SP");
+    uint16_t addr = mmu_get_two_bytes(cpu.PC);
+    mmu_write_two_bytes(addr, cpu.SP);
+    cpu.PC += 2;
+    cpu.cycle_count += 20;
+}
+
+void OPC_LD_SP_HL(void) {
+    LOG_DEBUG("OPC_LD_SP_HL");
+    cpu.SP = CPU_DREG_HL;
+    cpu.cycle_count += 8;
+}
+
+void OPC_LD_HL_SP_i8(void) {
+    LOG_DEBUG("OPC_LD_HL_SP_i8");
+    int8_t   n  = (int8_t) mmu_get_byte(cpu.PC);
+    uint16_t sp = cpu.SP;
+    uint8_t  un = (uint8_t) n;
+
+    clear_flag_register();
+    set_flag(((sp & LO_NIBBLE_MASK) + (un & LO_NIBBLE_MASK)) > LO_NIBBLE_MASK, H_FLAG);
+    set_flag(((sp & BYTE_MASK) + (un & BYTE_MASK)) > BYTE_MASK, C_FLAG);
+
+    CPU_DREG_HL = (uint16_t) (sp + n);
+    ++cpu.PC;
+    cpu.cycle_count += 12;
+}
+
+// ----------------------- 16-BIT ALU
+void OPC_INC_DE(void) {
+    LOG_DEBUG("OPC_INC_DE");
+    ++CPU_DREG_DE;
+    cpu.cycle_count += 8;
+}
+
+void OPC_INC_HL16(void) {
+    LOG_DEBUG("OPC_INC_HL16");
+    ++CPU_DREG_HL;
+    cpu.cycle_count += 8;
+}
+
+void OPC_INC_SP(void) {
+    LOG_DEBUG("OPC_INC_SP");
+    ++cpu.SP;
+    cpu.cycle_count += 8;
+}
+
+void OPC_DEC_BC(void) {
+    LOG_DEBUG("OPC_DEC_BC");
+    --CPU_DREG_BC;
+    cpu.cycle_count += 8;
+}
+
+void OPC_DEC_DE(void) {
+    LOG_DEBUG("OPC_DEC_DE");
+    --CPU_DREG_DE;
+    cpu.cycle_count += 8;
+}
+
+void OPC_DEC_HL16(void) {
+    LOG_DEBUG("OPC_DEC_HL16");
+    --CPU_DREG_HL;
+    cpu.cycle_count += 8;
+}
+
+void OPC_DEC_SP(void) {
+    LOG_DEBUG("OPC_DEC_SP");
+    --cpu.SP;
+    cpu.cycle_count += 8;
+}
+
+static void ADD_HL_n(uint16_t n) {
+    uint_fast32_t result = (uint_fast32_t) CPU_DREG_HL + n;
+
+    clear_flag(N_FLAG);
+    clear_flag(H_FLAG);
+    clear_flag(C_FLAG);
+    set_flag(((CPU_DREG_HL & 0x0FFF) + (n & 0x0FFF)) > 0x0FFF, H_FLAG);
+    set_flag(result > 0xFFFF, C_FLAG);
+
+    CPU_DREG_HL = (uint16_t) result;
+}
+
+void OPC_ADD_HL_BC(void) {
+    LOG_DEBUG("OPC_ADD_HL_BC");
+    ADD_HL_n(CPU_DREG_BC);
+    cpu.cycle_count += 8;
+}
+
+void OPC_ADD_HL_DE(void) {
+    LOG_DEBUG("OPC_ADD_HL_DE");
+    ADD_HL_n(CPU_DREG_DE);
+    cpu.cycle_count += 8;
+}
+
+void OPC_ADD_HL_HL(void) {
+    LOG_DEBUG("OPC_ADD_HL_HL");
+    ADD_HL_n(CPU_DREG_HL);
+    cpu.cycle_count += 8;
+}
+
+void OPC_ADD_HL_SP(void) {
+    LOG_DEBUG("OPC_ADD_HL_SP");
+    ADD_HL_n(cpu.SP);
+    cpu.cycle_count += 8;
+}
+
+void OPC_ADD_SP_i8(void) {
+    LOG_DEBUG("OPC_ADD_SP_i8");
+    int8_t   n  = (int8_t) mmu_get_byte(cpu.PC);
+    uint16_t sp = cpu.SP;
+    uint8_t  un = (uint8_t) n;
+
+    clear_flag_register();
+    set_flag(((sp & LO_NIBBLE_MASK) + (un & LO_NIBBLE_MASK)) > LO_NIBBLE_MASK, H_FLAG);
+    set_flag(((sp & BYTE_MASK) + (un & BYTE_MASK)) > BYTE_MASK, C_FLAG);
+
+    cpu.SP = (uint16_t) (sp + n);
+    ++cpu.PC;
+    cpu.cycle_count += 16;
+}
+
+// ----------------------- Jumps
+void OPC_JP_a16(void) {
+    LOG_DEBUG("OPC_JP_a16");
+    cpu.PC = mmu_get_two_bytes(cpu.PC);
+    cpu.cycle_count += 16;
+}
+
+void OPC_JP_HL(void) {
+    LOG_DEBUG("OPC_JP_HL");
+    cpu.PC = CPU_DREG_HL;
+    cpu.cycle_count += 4;
+}
+
+// ----------------------- Stack
+void OPC_PUSH_BC(void) {
+    LOG_DEBUG("OPC_PUSH_BC");
+    mmu_stack_push(CPU_DREG_BC);
+    cpu.cycle_count += 16;
+}
+
+void OPC_PUSH_DE(void) {
+    LOG_DEBUG("OPC_PUSH_DE");
+    mmu_stack_push(CPU_DREG_DE);
+    cpu.cycle_count += 16;
+}
+
+void OPC_PUSH_HL(void) {
+    LOG_DEBUG("OPC_PUSH_HL");
+    mmu_stack_push(CPU_DREG_HL);
+    cpu.cycle_count += 16;
+}
+
+void OPC_PUSH_AF(void) {
+    LOG_DEBUG("OPC_PUSH_AF");
+    mmu_stack_push(CPU_DREG_AF);
+    cpu.cycle_count += 16;
+}
+
+void OPC_POP_BC(void) {
+    LOG_DEBUG("OPC_POP_BC");
+    CPU_DREG_BC = mmu_stack_pop();
+    cpu.cycle_count += 12;
+}
+
+void OPC_POP_DE(void) {
+    LOG_DEBUG("OPC_POP_DE");
+    CPU_DREG_DE = mmu_stack_pop();
+    cpu.cycle_count += 12;
+}
+
+void OPC_POP_HL(void) {
+    LOG_DEBUG("OPC_POP_HL");
+    CPU_DREG_HL = mmu_stack_pop();
+    cpu.cycle_count += 12;
+}
+
+void OPC_POP_AF(void) {
+    LOG_DEBUG("OPC_POP_AF");
+    // The lower nibble of F is hardwired to zero on the SM83.
+    CPU_DREG_AF = (uint16_t) (mmu_stack_pop() & 0xFFF0);
+    cpu.cycle_count += 12;
+}
+
+// ----------------------- Returns
+void OPC_RET(void) {
+    LOG_DEBUG("OPC_RET");
+    cpu.PC = mmu_stack_pop();
+    cpu.cycle_count += 16;
+}
+
+void OPC_RETI(void) {
+    LOG_DEBUG("OPC_RETI");
+    cpu.PC = mmu_stack_pop();
+    cpu.cycle_count += 16;
+    // TODO: enable interrupts (mirror of EI but immediate)
+}
+
+static void OPC_RET_cc(uint8_t bit, uint8_t branching_condition) {
+    if (bit == branching_condition) {
+        cpu.PC = mmu_stack_pop();
+        cpu.cycle_count += 20;
+    } else {
+        cpu.cycle_count += 8;
+    }
+}
+
+void OPC_RET_NZ(void) {
+    LOG_DEBUG("OPC_RET_NZ");
+    OPC_RET_cc(get_flag(Z_FLAG), 0);
+}
+
+void OPC_RET_Z(void) {
+    LOG_DEBUG("OPC_RET_Z");
+    OPC_RET_cc(get_flag(Z_FLAG), 1);
+}
+
+void OPC_RET_NC(void) {
+    LOG_DEBUG("OPC_RET_NC");
+    OPC_RET_cc(get_flag(C_FLAG), 0);
+}
+
+void OPC_RET_C(void) {
+    LOG_DEBUG("OPC_RET_C");
+    OPC_RET_cc(get_flag(C_FLAG), 1);
+}
+
+// ----------------------- CB Prefix
+static void RLC_n(uint8_t *reg) {
+    uint8_t bit7 = (uint8_t) ((*reg >> 7) & 1);
+    *reg         = (uint8_t) ((*reg << 1) | bit7);
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit7, C_FLAG);
+}
+
+static void RRC_n(uint8_t *reg) {
+    uint8_t bit0 = (uint8_t) (*reg & 1);
+    *reg         = (uint8_t) ((*reg >> 1) | (bit0 << 7));
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit0, C_FLAG);
+}
+
+static void RL_n(uint8_t *reg) {
+    uint8_t old_carry = get_flag(C_FLAG);
+    uint8_t bit7      = (uint8_t) ((*reg >> 7) & 1);
+    *reg              = (uint8_t) ((*reg << 1) | old_carry);
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit7, C_FLAG);
+}
+
+static void RR_n(uint8_t *reg) {
+    uint8_t old_carry = get_flag(C_FLAG);
+    uint8_t bit0      = (uint8_t) (*reg & 1);
+    *reg              = (uint8_t) ((*reg >> 1) | (old_carry << 7));
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit0, C_FLAG);
+}
+
+static void SLA_n(uint8_t *reg) {
+    uint8_t bit7 = (uint8_t) ((*reg >> 7) & 1);
+    *reg         = (uint8_t) (*reg << 1);
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit7, C_FLAG);
+}
+
+static void SRA_n(uint8_t *reg) {
+    uint8_t bit0 = (uint8_t) (*reg & 1);
+    uint8_t bit7 = (uint8_t) (*reg & 0x80);
+    *reg         = (uint8_t) ((*reg >> 1) | bit7);
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit0, C_FLAG);
+}
+
+static void SWAP_n(uint8_t *reg) {
+    *reg = (uint8_t) (((*reg & LO_NIBBLE_MASK) << 4) | ((*reg & HI_NIBBLE_MASK) >> 4));
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+}
+
+static void SRL_n(uint8_t *reg) {
+    uint8_t bit0 = (uint8_t) (*reg & 1);
+    *reg         = (uint8_t) (*reg >> 1);
+    clear_flag_register();
+    set_flag(*reg == 0, Z_FLAG);
+    set_flag(bit0, C_FLAG);
+}
+
+static void BIT_n(uint8_t value, uint8_t bit) {
+    uint8_t mask = (uint8_t) (1u << bit);
+    clear_flag(Z_FLAG);
+    set_flag((value & mask) == 0, Z_FLAG);
+    clear_flag(N_FLAG);
+    set_flag(1, H_FLAG);
+    // C unaffected
+}
+
+static void RES_n(uint8_t *reg, uint8_t bit) {
+    *reg = (uint8_t) (*reg & ~(1u << bit));
+}
+
+static void SET_n(uint8_t *reg, uint8_t bit) {
+    *reg = (uint8_t) (*reg | (1u << bit));
+}
+
+// Wrappers: one void(void) function per CB opcode
+#define CB_REG_OP(OP, REG)                          \
+    static void OPC_CB_##OP##_##REG(void) {         \
+        LOG_DEBUG("OPC_CB_" #OP "_" #REG);          \
+        OP##_n(&CPU_REG_##REG);                     \
+        cpu.cycle_count += 8;                       \
+    }
+
+#define CB_HL_OP(OP)                                \
+    static void OPC_CB_##OP##_HL(void) {            \
+        LOG_DEBUG("OPC_CB_" #OP "_HL");             \
+        uint8_t value = mmu_get_byte(CPU_DREG_HL);  \
+        OP##_n(&value);                             \
+        mmu_write_byte(CPU_DREG_HL, value);         \
+        cpu.cycle_count += 16;                      \
+    }
+
+#define CB_OP_ALL(OP)                               \
+    CB_REG_OP(OP, B)                                \
+    CB_REG_OP(OP, C)                                \
+    CB_REG_OP(OP, D)                                \
+    CB_REG_OP(OP, E)                                \
+    CB_REG_OP(OP, H)                                \
+    CB_REG_OP(OP, L)                                \
+    CB_HL_OP(OP)                                    \
+    CB_REG_OP(OP, A)
+
+CB_OP_ALL(RLC)
+CB_OP_ALL(RRC)
+CB_OP_ALL(RL)
+CB_OP_ALL(RR)
+CB_OP_ALL(SLA)
+CB_OP_ALL(SRA)
+CB_OP_ALL(SWAP)
+CB_OP_ALL(SRL)
+
+#define CB_BIT_REG(BIT, REG)                                \
+    static void OPC_CB_BIT_##BIT##_##REG(void) {            \
+        LOG_DEBUG("OPC_CB_BIT_" #BIT "_" #REG);             \
+        BIT_n(CPU_REG_##REG, BIT);                          \
+        cpu.cycle_count += 8;                               \
+    }
+
+#define CB_BIT_HL(BIT)                                      \
+    static void OPC_CB_BIT_##BIT##_HL(void) {               \
+        LOG_DEBUG("OPC_CB_BIT_" #BIT "_HL");                \
+        BIT_n(mmu_get_byte(CPU_DREG_HL), BIT);              \
+        cpu.cycle_count += 12;                              \
+    }
+
+#define CB_BIT_ALL(BIT)                                     \
+    CB_BIT_REG(BIT, B)                                      \
+    CB_BIT_REG(BIT, C)                                      \
+    CB_BIT_REG(BIT, D)                                      \
+    CB_BIT_REG(BIT, E)                                      \
+    CB_BIT_REG(BIT, H)                                      \
+    CB_BIT_REG(BIT, L)                                      \
+    CB_BIT_HL(BIT)                                          \
+    CB_BIT_REG(BIT, A)
+
+CB_BIT_ALL(0)
+CB_BIT_ALL(1)
+CB_BIT_ALL(2)
+CB_BIT_ALL(3)
+CB_BIT_ALL(4)
+CB_BIT_ALL(5)
+CB_BIT_ALL(6)
+CB_BIT_ALL(7)
+
+#define CB_RW_REG(OP, BIT, REG)                             \
+    static void OPC_CB_##OP##_##BIT##_##REG(void) {         \
+        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_" #REG);         \
+        OP##_n(&CPU_REG_##REG, BIT);                        \
+        cpu.cycle_count += 8;                               \
+    }
+
+#define CB_RW_HL(OP, BIT)                                   \
+    static void OPC_CB_##OP##_##BIT##_HL(void) {            \
+        LOG_DEBUG("OPC_CB_" #OP "_" #BIT "_HL");            \
+        uint8_t value = mmu_get_byte(CPU_DREG_HL);          \
+        OP##_n(&value, BIT);                                \
+        mmu_write_byte(CPU_DREG_HL, value);                 \
+        cpu.cycle_count += 16;                              \
+    }
+
+#define CB_RW_ALL(OP, BIT)                                  \
+    CB_RW_REG(OP, BIT, B)                                   \
+    CB_RW_REG(OP, BIT, C)                                   \
+    CB_RW_REG(OP, BIT, D)                                   \
+    CB_RW_REG(OP, BIT, E)                                   \
+    CB_RW_REG(OP, BIT, H)                                   \
+    CB_RW_REG(OP, BIT, L)                                   \
+    CB_RW_HL(OP, BIT)                                       \
+    CB_RW_REG(OP, BIT, A)
+
+CB_RW_ALL(RES, 0)
+CB_RW_ALL(RES, 1)
+CB_RW_ALL(RES, 2)
+CB_RW_ALL(RES, 3)
+CB_RW_ALL(RES, 4)
+CB_RW_ALL(RES, 5)
+CB_RW_ALL(RES, 6)
+CB_RW_ALL(RES, 7)
+
+CB_RW_ALL(SET, 0)
+CB_RW_ALL(SET, 1)
+CB_RW_ALL(SET, 2)
+CB_RW_ALL(SET, 3)
+CB_RW_ALL(SET, 4)
+CB_RW_ALL(SET, 5)
+CB_RW_ALL(SET, 6)
+CB_RW_ALL(SET, 7)
+
+#define CB_REGISTER_OP(BASE, OP)                            \
+    do {                                                    \
+        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_B;   \
+        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_C;   \
+        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_D;   \
+        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_E;   \
+        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_H;   \
+        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_L;   \
+        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_HL;  \
+        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_A;   \
+    } while (0)
+
+#define CB_REGISTER_BITTED(BASE, OP, BIT)                          \
+    do {                                                           \
+        cb_prefixed_lookup[(BASE) + 0] = OPC_CB_##OP##_##BIT##_B;  \
+        cb_prefixed_lookup[(BASE) + 1] = OPC_CB_##OP##_##BIT##_C;  \
+        cb_prefixed_lookup[(BASE) + 2] = OPC_CB_##OP##_##BIT##_D;  \
+        cb_prefixed_lookup[(BASE) + 3] = OPC_CB_##OP##_##BIT##_E;  \
+        cb_prefixed_lookup[(BASE) + 4] = OPC_CB_##OP##_##BIT##_H;  \
+        cb_prefixed_lookup[(BASE) + 5] = OPC_CB_##OP##_##BIT##_L;  \
+        cb_prefixed_lookup[(BASE) + 6] = OPC_CB_##OP##_##BIT##_HL; \
+        cb_prefixed_lookup[(BASE) + 7] = OPC_CB_##OP##_##BIT##_A;  \
+    } while (0)
+
+static void cb_optable_init(void) {
+    CB_REGISTER_OP(0x00, RLC);
+    CB_REGISTER_OP(0x08, RRC);
+    CB_REGISTER_OP(0x10, RL);
+    CB_REGISTER_OP(0x18, RR);
+    CB_REGISTER_OP(0x20, SLA);
+    CB_REGISTER_OP(0x28, SRA);
+    CB_REGISTER_OP(0x30, SWAP);
+    CB_REGISTER_OP(0x38, SRL);
+
+    CB_REGISTER_BITTED(0x40, BIT, 0);
+    CB_REGISTER_BITTED(0x48, BIT, 1);
+    CB_REGISTER_BITTED(0x50, BIT, 2);
+    CB_REGISTER_BITTED(0x58, BIT, 3);
+    CB_REGISTER_BITTED(0x60, BIT, 4);
+    CB_REGISTER_BITTED(0x68, BIT, 5);
+    CB_REGISTER_BITTED(0x70, BIT, 6);
+    CB_REGISTER_BITTED(0x78, BIT, 7);
+
+    CB_REGISTER_BITTED(0x80, RES, 0);
+    CB_REGISTER_BITTED(0x88, RES, 1);
+    CB_REGISTER_BITTED(0x90, RES, 2);
+    CB_REGISTER_BITTED(0x98, RES, 3);
+    CB_REGISTER_BITTED(0xA0, RES, 4);
+    CB_REGISTER_BITTED(0xA8, RES, 5);
+    CB_REGISTER_BITTED(0xB0, RES, 6);
+    CB_REGISTER_BITTED(0xB8, RES, 7);
+
+    CB_REGISTER_BITTED(0xC0, SET, 0);
+    CB_REGISTER_BITTED(0xC8, SET, 1);
+    CB_REGISTER_BITTED(0xD0, SET, 2);
+    CB_REGISTER_BITTED(0xD8, SET, 3);
+    CB_REGISTER_BITTED(0xE0, SET, 4);
+    CB_REGISTER_BITTED(0xE8, SET, 5);
+    CB_REGISTER_BITTED(0xF0, SET, 6);
+    CB_REGISTER_BITTED(0xF8, SET, 7);
 }
