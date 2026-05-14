@@ -38,6 +38,10 @@ static const uint8_t boot_rom[BOOT_ROM_SIZE] = {
  *** EXPOSED METHODS                                ***
  ******************************************************/
 
+void mmu_zero(void) {
+    memset(mem, 0, MEM_SIZE);
+}
+
 void mmu_print_memory(void) {
     dump_hex(mem, sizeof(mem));
 }
