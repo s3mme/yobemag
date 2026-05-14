@@ -120,13 +120,18 @@ if (${TEST})
         test/mmu_test.c
         test/log_test.c
         test/jr_cc_n.c
-        test/jp_cc_n.c)
+        test/jp_cc_n.c
+        test/json.c
+        test/cpu_randomized.c
+        test/cpu_randomized_test.c)
 
     set(TEST_SOURCES ${TEST_FILES} ${SRC_FILES})
     list(REMOVE_ITEM TEST_SOURCES "src/main.c")
     add_executable(${TEST_NAME} ${TEST_SOURCES})
 
-    target_compile_definitions(${TEST_NAME} PUBLIC YOBEMAG_TEST)
+    target_compile_definitions(${TEST_NAME} PUBLIC
+        YOBEMAG_TEST
+        CPU_RANDOMIZED_TEST_DIR="${CMAKE_SOURCE_DIR}/test/json")
 
     if (${COVERAGE})
         if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
