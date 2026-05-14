@@ -1,6 +1,7 @@
 #ifndef YOBEMAG_MEM_H
 #define YOBEMAG_MEM_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #define BOOT_ROM_SIZE (256)
 #define MEM_SIZE      (65536)
 
+void mmu_set_boot_rom_active(bool active);
 void mmu_print_memory(void);
 void mmu_init(void);
 __attribute__((pure)) uint8_t mmu_get_byte(uint16_t addr);

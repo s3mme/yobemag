@@ -17,6 +17,7 @@ void dump_hex(const uint8_t *data, size_t size);
 #define MB1_LENGTH (0x4000)
 
 static uint8_t mem[MEM_SIZE];
+static bool    boot_rom_active = false;
 
 static const uint8_t boot_rom[BOOT_ROM_SIZE] = {
     0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E, 0x11, 0x3E, 0x80,
@@ -38,6 +39,10 @@ static const uint8_t boot_rom[BOOT_ROM_SIZE] = {
  *** EXPOSED METHODS                                ***
  ******************************************************/
 
+void mmu_set_boot_rom_active(bool active) {
+    boot_rom_active = active;
+}
+
 void mmu_zero(void) {
     memset(mem, 0, MEM_SIZE);
 }
@@ -57,7 +62,7 @@ void mmu_init(void) {
 }
 
 uint8_t mmu_get_byte(uint16_t addr) {
-    if (addr < BOOT_ROM_SIZE) {
+    if (boot_rom_active && addr < BOOT_ROM_SIZE) {
         return boot_rom[addr];
     }
 

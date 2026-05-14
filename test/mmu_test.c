@@ -20,16 +20,20 @@ Test(mmu, mmu_init_with_rom_load, .exit_code = EXIT_SUCCESS) {
     snprintf(rom_file_path, MAX_PATH_LENGTH, "%s/../roms/yobemag.gb", dirname(file_path_copy));
     rom_init(rom_file_path);
     mmu_init();
+    mmu_set_boot_rom_active(true);
 
     for (int i = 0; i <= 8; ++i) {
         cr_assert(mmu_get_byte((uint16_t) ((1 << i) - 1)) == partial_boot_rom[i]);
     }
 
+    mmu_set_boot_rom_active(false);
     free(file_path_copy);
 }
 
 Test(mmu, mmu_get_byte_boot_rom, .exit_code = EXIT_SUCCESS) {
+    mmu_set_boot_rom_active(true);
     cr_assert(eq(u8, mmu_get_byte(113), 0x13));
+    mmu_set_boot_rom_active(false);
 }
 
 Test(mmu, mmu_write_byte_outside_rom, .exit_code = EXIT_SUCCESS) {
