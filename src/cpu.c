@@ -1372,8 +1372,8 @@ static void SBC_A_n(uint8_t n) {
     clear_flag_register();
     set_flag(!result, Z_FLAG);
     set_flag(1, N_FLAG);
-    set_flag(((n + carry) & LO_NIBBLE_MASK) > (A & LO_NIBBLE_MASK), H_FLAG);
-    set_flag((n + carry) > A, C_FLAG);
+    set_flag((A & LO_NIBBLE_MASK) < (n & LO_NIBBLE_MASK) + carry, H_FLAG);
+    set_flag((uint16_t) A < (uint16_t) n + carry, C_FLAG);
 
     CPU_REG_A = result;
 }
@@ -1697,8 +1697,10 @@ void OPC_CP_A_d8(void) {
 static void INC_n(uint8_t *const reg) {
     ++(*reg);
 
+    clear_flag(Z_FLAG);
     set_flag(!(*reg), Z_FLAG);
-    set_flag(((*reg) & 0x10) == 0x10, H_FLAG);
+    clear_flag(H_FLAG);
+    set_flag((*reg & LO_NIBBLE_MASK) == 0, H_FLAG);
     clear_flag(N_FLAG);
 }
 
@@ -1761,18 +1763,12 @@ void OPC_INC_HL(void) {
 }
 
 static void DEC_n(uint8_t *const addr) {
-    // Simplifications made for half carry flag check:
-    // (*addr & LO_NIBBLE_MASK) < (n & LO_NIBBLE_MASK) where n = 1
-    // (*addr & LO_NIBBLE_MASK) < (1 & LO_NIBBLE_MASK)
-    // (*addr & LO_NIBBLE_MASK) < 1
-    // (*addr & LO_NIBBLE_MASK) == 0
-    set_flag(!(*addr & LO_NIBBLE_MASK), H_FLAG);
-
+    clear_flag(H_FLAG);
+    set_flag(!(*addr & LO_NIBBLE_MASK), H_FLAG); // borrow from bit 4 when lower nibble is 0
     --(*addr);
-
+    clear_flag(Z_FLAG);
     set_flag(!(*addr), Z_FLAG);
     set_flag(1, N_FLAG);
-
     // Flag C is not affected
 }
 
