@@ -28,7 +28,7 @@ static void emulate(const TestParams *const params) {
     cr_expect(eq(u8, actual, params->expected), "l: %d, r: %d, op: 0x%x", params->lhs, params->rhs, params->opcode);
 
     // check if PC is updated correctly
-    cr_expect(eq(u8, cpu.PC, (address + params->address_increment)));
+    cr_expect(eq(u16, cpu.PC, (address + params->address_increment)));
 }
 
 void emulate_HL(const SpecialTestParams *const params) {
@@ -57,7 +57,7 @@ void emulate_HL(const SpecialTestParams *const params) {
               params->opcode, params->uses_borrow);
 
     // check if PC is updated correctly
-    cr_expect(eq(u8, cpu.PC, address + address_increment));
+    cr_expect(eq(u16, cpu.PC, address + address_increment));
 }
 
 ParameterizedTestParameters(DEC_n, DEC_n_half_carry) {

@@ -68,5 +68,5 @@ ParameterizedTest(JrNZTestParams *params, jr_cc_n, jr_cc_n, .init = cpu_mmu_setu
         branching_addition = 0;
     }
 
-    cr_expect(eq(u8, cpu.PC, opcode_address + 2 + branching_addition));
+    cr_expect(eq(u16, cpu.PC, opcode_address + 2 + branching_addition));
 }

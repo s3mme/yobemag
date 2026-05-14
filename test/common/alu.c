@@ -29,7 +29,7 @@ void emulate_instruction(const TestParams *const params) {
     cr_expect(eq(u8, actual, params->expected), "l: %d, r: %d, op: 0x%x", params->lhs, params->rhs, params->opcode);
 
     // check if PC is updated correctly
-    cr_expect(eq(u8, cpu.PC, (address + params->address_increment)));
+    cr_expect(eq(u16, cpu.PC, (address + params->address_increment)));
 }
 
 void emulate_HL_d8_instruction(const SpecialTestParams *const params) {
@@ -64,5 +64,5 @@ void emulate_HL_d8_instruction(const SpecialTestParams *const params) {
               params->opcode, params->uses_borrow);
 
     // check if PC is updated correctly
-    cr_expect(eq(u8, cpu.PC, address + address_increment));
+    cr_expect(eq(u16, cpu.PC, address + address_increment));
 }

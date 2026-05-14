@@ -52,8 +52,8 @@ ParameterizedTest(JrNZTestParams *params, jp_cc_n, jp_cc_n, .init = cpu_mmu_setu
     // check if PC is correct
     int8_t branching_addition;
     if (params->branching_condition) {
-        cr_expect(eq(u8, cpu.PC, expected));
+        cr_expect(eq(u16, cpu.PC, expected));
     } else {
-        cr_expect(eq(u8, cpu.PC, opcode_address + 3));
+        cr_expect(eq(u16, cpu.PC, opcode_address + 3));
     }
 }
