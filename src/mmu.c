@@ -42,6 +42,9 @@ void mmu_zero(void) {
     memset(mem, 0, MEM_SIZE);
 }
 
+void mmu_destroy(void) {
+}
+
 void mmu_print_memory(void) {
     dump_hex(mem, sizeof(mem));
 }
