@@ -12,7 +12,7 @@ jobs:
         build-type: [ Debug, Release ]
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: 'true'
           fetch-depth: 0
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: 'true'
           fetch-depth: 0
@@ -59,7 +59,7 @@ jobs:
                   { compiler: clang-14, sanitizer: undefined } ]
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: 'true'
           fetch-depth: 0
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: 'true'
           fetch-depth: 0
@@ -92,18 +92,19 @@ jobs:
           sudo apt install ninja-build libsdl2-dev libcriterion-dev -y
           pip install gcovr==5.0
 
-      - name: Run Criterion test suite
+      - name: Build and run Criterion test suite
         run: |
           mkdir build
           cmake -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=1 -DTEST=1 . -B build
-          ninja -j 0 -C build test
+          ninja -j 0 -C build yobemag_test
+          ./build/yobemag_test
 
       - name: Run gcov
         run: |
           gcovr -r . --exclude=test/ --sonarqube > coverage.xml
 
       - name: Upload artifact (gcov report)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: gcov-report
           path: ./coverage.xml
@@ -115,22 +116,23 @@ jobs:
     env:
       SONAR_SCANNER_VERSION: 4.7.0.2747
       SONAR_SERVER_URL: "https://sonarcloud.io"
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
+      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Download artifact (gcov report)
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: gcov-report
 
       - name: Set up JDK 11
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v4
         with:
           java-version: 11
+          distribution: temurin
 
       - name: Download and set up sonar-scanner
         env:
