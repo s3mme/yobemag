@@ -1,26 +1,29 @@
 name: Quality Control
 on:
+  push:
+    branches:
+      - main
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [opened, synchronize, reopened]
 jobs:
   build:
     name: CMake Build
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        compiler: [ clang-12, clang-13, clang-14, gcc-11 ]
-        build-type: [ Debug, Release ]
+        compiler: [clang-12, clang-13, clang-14, gcc-11]
+        build-type: [Debug, Release]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: 'true'
+          submodules: "true"
           fetch-depth: 0
 
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install ninja-build libsdl2-dev libcriterion-dev -y
+          sudo apt install ninja-build libsdl2-dev libcriterion-dev clang-12 clang-13 clang-14 gcc-11 -y
 
       - name: Build
         run: |
@@ -29,13 +32,13 @@ jobs:
 
   static-analysis:
     name: Static Analysis
-    needs: [ build ]
+    needs: [build]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: 'true'
+          submodules: "true"
           fetch-depth: 0
 
       - name: Install dependencies
@@ -50,18 +53,21 @@ jobs:
 
   unit-tests-with-sanitizers:
     name: Criterion Unit Tests with Sanitizers
-    needs: [ static-analysis ]
+    needs: [static-analysis]
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        config: [ { compiler: gcc, sanitizer: valgrind },
-                  { compiler: clang-14, sanitizer: address },
-                  { compiler: clang-14, sanitizer: undefined } ]
+        config:
+          [
+            { compiler: gcc, sanitizer: valgrind },
+            { compiler: clang-14, sanitizer: address },
+            { compiler: clang-14, sanitizer: undefined },
+          ]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: 'true'
+          submodules: "true"
           fetch-depth: 0
 
       - name: Install dependencies
@@ -77,13 +83,13 @@ jobs:
 
   unit-tests:
     name: Criterion Unit Tests
-    needs: [ unit-tests-with-sanitizers ]
+    needs: [unit-tests-with-sanitizers]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: 'true'
+          submodules: "true"
           fetch-depth: 0
 
       - name: Install dependencies
@@ -99,74 +105,10 @@ jobs:
           ninja -j 0 -C build yobemag_test
           ./build/yobemag_test
 
-      - name: Run gcov
+      - name: Generate coverage report
         run: |
-          gcovr -r . --exclude=test/ --sonarqube > coverage.xml
-
-      - name: Upload artifact (gcov report)
-        uses: actions/upload-artifact@v4
-        with:
-          name: gcov-report
-          path: ./coverage.xml
-
-  sonarcloud:
-    name: SonarCloud Analysis
-    needs: [ unit-tests ]
-    runs-on: ubuntu-22.04
-    env:
-      SONAR_SCANNER_VERSION: 4.7.0.2747
-      SONAR_SERVER_URL: "https://sonarcloud.io"
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download artifact (gcov report)
-        uses: actions/download-artifact@v4
-        with:
-          name: gcov-report
-
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
-        with:
-          java-version: 11
-          distribution: temurin
-
-      - name: Download and set up sonar-scanner
-        env:
-          SONAR_SCANNER_DOWNLOAD_URL: https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${{ env.SONAR_SCANNER_VERSION }}-linux.zip
-        run: |
-          mkdir -p $HOME/.sonar
-          curl -sSLo $HOME/.sonar/sonar-scanner.zip ${{ env.SONAR_SCANNER_DOWNLOAD_URL }}
-          unzip -o $HOME/.sonar/sonar-scanner.zip -d $HOME/.sonar/
-          echo "$HOME/.sonar/sonar-scanner-${{ env.SONAR_SCANNER_VERSION }}-linux/bin" >> $GITHUB_PATH
-
-      - name: Download and set up build-wrapper
-        env:
-          BUILD_WRAPPER_DOWNLOAD_URL: ${{ env.SONAR_SERVER_URL }}/static/cpp/build-wrapper-linux-x86.zip
-        run: |
-          curl -sSLo $HOME/.sonar/build-wrapper-linux-x86.zip ${{ env.BUILD_WRAPPER_DOWNLOAD_URL }}
-          unzip -o $HOME/.sonar/build-wrapper-linux-x86.zip -d $HOME/.sonar/
-          echo "$HOME/.sonar/build-wrapper-linux-x86" >> $GITHUB_PATH
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get install libsdl2-dev gcc-multilib ninja-build libcriterion-dev -y
-
-      - name: Run build-wrapper
-        run: |
-          mkdir build
-          cmake -G Ninja . -B build
-          build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} ninja -C build -j 0
-
-      - name: Run sonar-scanner
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          sonar-scanner \
-            --define sonar.host.url="${{ env.SONAR_SERVER_URL }}" \
-            --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}" \
-            --define sonar.coverageReportPaths=coverage.xml
+          gcovr -r . --exclude=test/ --txt -o coverage.txt
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat coverage.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
