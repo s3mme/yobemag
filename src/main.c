@@ -8,6 +8,7 @@
 #include "mmu.h"
 #include "cli.h"
 #include "log.h"
+#include "ppu.h"
 
 void run_console(bool *halt);
 
@@ -31,6 +32,9 @@ int main(const int argc, char **const argv) {
 
     cpu_init();
     LOG_INFO("Successfully initialized CPU");
+
+    ppu_init();
+    LOG_INFO("Successfully initialized PPU");
 
     uint8_t iterations = 0;
     bool halt          = false;

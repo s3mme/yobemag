@@ -10,6 +10,7 @@ set(SRC_FILES
     src/cpu.c
     src/main.c
     src/mmu.c
+    src/ppu.c
     src/lcd.c
     src/rom.c
     src/log.c
