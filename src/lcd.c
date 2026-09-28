@@ -1,5 +1,6 @@
-#include <stdio.h>
+#include <SDL2/SDL.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include "lcd.h"
 #include "log.h"
@@ -19,15 +20,26 @@ static SDL_Surface *surface;
  ******************************************************/
 
 void lcd_init(void) {
-    SDL_Init(SDL_INIT_EVERYTHING);
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
+        exit(EXIT_FAILURE);
+    }
+    LOG_DEBUG("SDL_Init finished");
 
     window = SDL_CreateWindow("yobemag GB Emulator", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH,
                               WINDOW_HEIGHT, SDL_WINDOW_INPUT_FOCUS);
+    if (window == NULL) {
+        LOG_ERROR("SDL_CreateWindow failed: %s", SDL_GetError());
+        exit(EXIT_FAILURE);
+    }
+    LOG_DEBUG("SDL_CreateWindow finished");
 
     surface = SDL_GetWindowSurface(window);
+    SDL_UpdateWindowSurface(window);
 }
 
 void lcd_teardown(void) {
+    SDL_DestroyWindow(window);
     SDL_Quit();
 }
 
