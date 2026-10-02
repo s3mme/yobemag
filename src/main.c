@@ -10,7 +10,7 @@
 #include "log.h"
 #include "ppu.h"
 
-void run_console(bool *halt);
+static void run_console(bool *halt);
 
 int main(const int argc, char **const argv) {
     CLIArguments cli_args;

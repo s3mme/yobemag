@@ -409,17 +409,18 @@ void cpu_step(void) {
 
     cpu.opcode = mmu_get_byte(cpu.PC++);
 
-    // CB prefix: get second byte and run
+    // We cannot know (here) the exact number of increments that the PC and cycle count need,
+    // hence the instructions themselves do it
     if (cpu.opcode == 0xCB) {
+        // CB prefix: get second byte and run
         cpu.opcode = mmu_get_byte(cpu.PC++);
         (*(cb_prefixed_lookup[cpu.opcode]))();
     } else {
         (*(instr_lookup[cpu.opcode]))();
     }
-    // We cannot know (here) the exact number of increments that the PC and cycle count need,
-    // hence the instructions themselves do it
 
-    //    blarggs test - serial output
+    // https://gbdev.io/pandocs/Serial_Data_Transfer_(Link_Cable).html#ff02--sc-serial-transfer-control
+    // usually used to communicate with other gameboys, here, primarily used for blargg's cpu tests
     if (mmu_get_byte(0xff02) == 0x81) {
         uint8_t c = mmu_get_byte(0xff01);
         printf("%c", c);
